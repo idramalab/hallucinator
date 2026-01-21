@@ -570,7 +570,7 @@ def main(pdf_path):
     mismatched = 0
 
     for i, (title, ref_authors) in enumerate(refs):
-        time.sleep(2)
+        time.sleep(1)
         found_title, found_authors = query_dblp(title)
         if found_title:
             if validate_authors(ref_authors, found_authors):
