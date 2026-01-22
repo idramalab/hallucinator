@@ -674,13 +674,6 @@ def main(pdf_path, sleep_time=1.0):
         print(f"  {Colors.RED}Not found (potential hallucinations):{Colors.RESET} {failed}")
     print()
 
-#    with open("paper_ratios.txt","a") as f:
-#        f.write("%s,%s\n"%(sys.argv[1].split("/")[-1],float(failed/len(refs))))
-#
-#    if mismatched:
-#        with open("mismatched_papers.txt","a") as f:
-#            f.write("%s,%s\n"%(sys.argv[1].split("/")[-1],mismatched))
-
 if __name__ == "__main__":
     import os
 

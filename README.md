@@ -36,7 +36,20 @@ python check_hallucinated_references.py <path_to_pdf>
 
 # Without colored output (for piping or non-color terminals)
 python check_hallucinated_references.py --no-color <path_to_pdf>
+
+# Adjust delay between API requests (default: 1 second)
+python check_hallucinated_references.py --sleep=0.5 <path_to_pdf>
+
+# Combine options
+python check_hallucinated_references.py --no-color --sleep=0.1 <path_to_pdf>
 ```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--no-color` | Disable colored output (useful for piping or logging) |
+| `--sleep=SECONDS` | Set delay between API requests (default: 1.0 second) |
 
 ## Example Output
 
