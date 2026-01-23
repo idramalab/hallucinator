@@ -79,6 +79,45 @@ def normalize_title(title):
     title = re.sub(r'[^a-zA-Z0-9]', '', title)
     return title.lower()
 
+# Common compound-word suffixes that should keep the hyphen
+COMPOUND_SUFFIXES = {
+    'centered', 'based', 'driven', 'aware', 'oriented', 'specific', 'related',
+    'dependent', 'independent', 'like', 'free', 'friendly', 'rich', 'poor',
+    'scale', 'level', 'order', 'class', 'type', 'style', 'wise', 'fold',
+    'shot', 'step', 'time', 'world', 'source', 'domain', 'task', 'modal',
+    'intensive', 'efficient', 'agnostic', 'invariant', 'sensitive', 'grained',
+}
+
+
+def fix_hyphenation(text):
+    """Fix hyphenation from PDF line breaks while preserving compound words.
+
+    - 'detec- tion' or 'detec-\\ntion' → 'detection' (syllable break)
+    - 'human- centered' or 'human-\\ncentered' → 'human-centered' (compound word)
+    """
+    def replace_hyphen(match):
+        before = match.group(1)  # character before hyphen
+        after_char = match.group(2)  # first character after hyphen
+        after_rest = match.group(3)  # rest of word after hyphen
+
+        after_word = after_char + after_rest
+        # If the word after hyphen is a common compound suffix, keep the hyphen
+        after_lower = after_word.lower()
+        for suffix in COMPOUND_SUFFIXES:
+            if after_lower == suffix or after_lower.startswith(suffix + ' ') or after_lower.startswith(suffix + ','):
+                return f'{before}-{after_word}'
+        # Check if the full word matches a suffix
+        if after_lower.rstrip('.,;:') in COMPOUND_SUFFIXES:
+            return f'{before}-{after_word}'
+        # Otherwise, it's likely a syllable break - remove hyphen
+        return f'{before}{after_word}'
+
+    # Fix hyphen followed by space or newline, capturing the full word after
+    text = re.sub(r'(\w)-\s+(\w)(\w*)', replace_hyphen, text)
+    text = re.sub(r'(\w)- (\w)(\w*)', replace_hyphen, text)
+    return text
+
+
 def expand_ligatures(text):
     """Expand common typographic ligatures found in PDFs."""
     ligatures = {
@@ -284,9 +323,8 @@ def clean_title(title, from_quotes=False):
     if not title:
         return ""
 
-    # Fix hyphenation from PDF line breaks
-    title = re.sub(r'(\w)- (\w)', r'\1\2', title)
-    title = re.sub(r'(\w)-\s+(\w)', r'\1\2', title)
+    # Fix hyphenation from PDF line breaks (preserves compound words like "human-centered")
+    title = fix_hyphenation(title)
 
     # If title came from quotes, return it as-is (quotes already delimit the title)
     if from_quotes:
@@ -373,8 +411,8 @@ def extract_title_from_reference(ref_text):
 
     Returns: (title, from_quotes) tuple where from_quotes indicates if title was in quotes.
     """
-    # Fix hyphenation from PDF line breaks (e.g., "detec- tion" -> "detection")
-    ref_text = re.sub(r'(\w)- (\w)', r'\1\2', ref_text)
+    # Fix hyphenation from PDF line breaks (preserves compound words like "human-centered")
+    ref_text = fix_hyphenation(ref_text)
     ref_text = re.sub(r'\s+', ' ', ref_text).strip()
 
     # === Format 1: IEEE/USENIX - Quoted titles or titles with quoted portions ===
@@ -420,7 +458,8 @@ def extract_title_from_reference(ref_text):
 
     # === Format 2: ACM - "Authors. Year. Title. In Venue" ===
     # Pattern: ". YYYY. Title-text. In "
-    acm_match = re.search(r'\.\s*((?:19|20)\d{2})\.\s*', ref_text)
+    # Use \s+ after year to avoid matching DOIs like "10.1109/CVPR.2022.001234"
+    acm_match = re.search(r'\.\s*((?:19|20)\d{2})\.\s+', ref_text)
     if acm_match:
         after_year = ref_text[acm_match.end():]
         # Find where title ends - at ". In " or at venue indicators
@@ -525,8 +564,8 @@ def extract_references_with_titles_and_authors(pdf_path):
     previous_authors = []
 
     for ref_text in raw_refs:
-        # Fix hyphenation from PDF line breaks (e.g., "detec- tion" -> "detection")
-        ref_text = re.sub(r'(\w)- (\w)', r'\1\2', ref_text)
+        # Fix hyphenation from PDF line breaks (preserves compound words like "human-centered")
+        ref_text = fix_hyphenation(ref_text)
 
         # Skip entries with non-academic URLs (keep acm, ieee, usenix, arxiv, doi)
         # Also catch broken URLs with spaces like "https: //" or "ht tps://"
