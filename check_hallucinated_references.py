@@ -52,9 +52,9 @@ def print_hallucinated_reference(title, error_type, source=None, ref_authors=Non
     if error_type == "not_found":
         print(f"{Colors.RED}Status:{Colors.RESET} Reference not found in any database")
         if searched_openalex:
-            print(f"{Colors.DIM}Searched: OpenAlex, CrossRef, arXiv, DBLP{Colors.RESET}")
+            print(f"{Colors.DIM}Searched: OpenAlex, CrossRef, arXiv, DBLP, OpenReview{Colors.RESET}")
         else:
-            print(f"{Colors.DIM}Searched: CrossRef, arXiv, DBLP{Colors.RESET}")
+            print(f"{Colors.DIM}Searched: CrossRef, arXiv, DBLP, OpenReview{Colors.RESET}")
     elif error_type == "author_mismatch":
         print(f"{Colors.YELLOW}Status:{Colors.RESET} Title found on {source} but authors don't match")
         print()
@@ -87,6 +87,7 @@ COMPOUND_SUFFIXES = {
     'scale', 'level', 'order', 'class', 'type', 'style', 'wise', 'fold',
     'shot', 'step', 'time', 'world', 'source', 'domain', 'task', 'modal',
     'intensive', 'efficient', 'agnostic', 'invariant', 'sensitive', 'grained',
+    'agent',
 }
 
 
@@ -369,6 +370,8 @@ def clean_title(title, from_quotes=False):
         r'\.\s*Data\s+in\s+brief.*$',
         r'\.\s*Biochemia\s+medica.*$',
         r'\.\s*KI-Künstliche.*$',
+        r'\s+arXiv\s+preprint.*$',  # "arXiv preprint arXiv:..."
+        r'\s+arXiv:\d+.*$',  # "arXiv:2503..."
     ]
 
     for pattern in cutoff_patterns:
@@ -738,6 +741,34 @@ def query_acl(title):
         print(f"[Error] ACL Anthology search failed: {e}")
     return None, []
 
+def query_openreview(title):
+    """Query OpenReview API for paper information."""
+    words = get_query_words(title, 6)
+    query = ' '.join(words)
+    url = f"https://api2.openreview.net/notes/search?query={urllib.parse.quote(query)}&limit=20"
+    try:
+        response = requests.get(url, headers={"User-Agent": "Academic Reference Parser"})
+        if response.status_code != 200:
+            return None, []
+        results = response.json().get("notes", [])
+        for item in results:
+            content = item.get("content", {})
+            # Handle both old and new OpenReview API formats
+            found_title = content.get("title", {})
+            if isinstance(found_title, dict):
+                found_title = found_title.get("value", "")
+            if found_title and fuzz.ratio(normalize_title(title), normalize_title(found_title)) >= 95:
+                # Extract authors
+                authors_field = content.get("authors", {})
+                if isinstance(authors_field, dict):
+                    authors = authors_field.get("value", [])
+                else:
+                    authors = authors_field if isinstance(authors_field, list) else []
+                return found_title, authors
+    except Exception as e:
+        print(f"[Error] OpenReview search failed: {e}")
+    return None, []
+
 def validate_authors(ref_authors, found_authors):
     def normalize_author(name):
         parts = name.split()
@@ -828,6 +859,19 @@ def main(pdf_path, sleep_time=1.0, openalex_key=None):
             else:
                 print_hallucinated_reference(
                     title, "author_mismatch", source="DBLP",
+                    ref_authors=ref_authors, found_authors=found_authors
+                )
+                mismatched += 1
+            continue
+
+        # 5. OpenReview (last resort for conference papers)
+        found_title, found_authors = query_openreview(title)
+        if found_title:
+            if validate_authors(ref_authors, found_authors):
+                found += 1
+            else:
+                print_hallucinated_reference(
+                    title, "author_mismatch", source="OpenReview",
                     ref_authors=ref_authors, found_authors=found_authors
                 )
                 mismatched += 1

@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hallucinated Reference Checker</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: #f5f5f5;
+            color: #333;
+        }
+        h1 {
+            color: #1a1a1a;
+            margin-bottom: 0.5rem;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 2rem;
+        }
+        .upload-form {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+        .label-hint {
+            font-weight: normal;
+            color: #666;
+            font-size: 0.9em;
+        }
+        input[type="file"],
+        input[type="text"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+        input[type="file"] {
+            background: #fafafa;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        .spinner {
+            display: none;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            color: #666;
+        }
+        .spinner.visible {
+            display: flex;
+        }
+        .spinner-icon {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ddd;
+            border-top-color: #2563eb;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .results {
+            display: none;
+        }
+        .results.visible {
+            display: block;
+        }
+        .summary {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 1.5rem;
+        }
+        .summary h2 {
+            margin-top: 0;
+            margin-bottom: 1rem;
+        }
+        .stats {
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+        .stat-label {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        .stat-verified .stat-value { color: #16a34a; }
+        .stat-mismatch .stat-value { color: #ca8a04; }
+        .stat-notfound .stat-value { color: #dc2626; }
+        .hallucinations {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .hallucinations h2 {
+            margin: 0;
+            padding: 1.5rem;
+            border-bottom: 1px solid #eee;
+        }
+        .reference {
+            padding: 1.5rem;
+            border-bottom: 1px solid #eee;
+        }
+        .reference:last-child {
+            border-bottom: none;
+        }
+        .reference-title {
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            word-break: break-word;
+        }
+        .reference-status {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            margin-bottom: 0.75rem;
+        }
+        .status-not-found {
+            background: #fef2f2;
+            color: #dc2626;
+        }
+        .status-mismatch {
+            background: #fefce8;
+            color: #ca8a04;
+        }
+        .author-comparison {
+            background: #f9fafb;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+        }
+        .author-comparison h4 {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.85rem;
+            color: #666;
+        }
+        .author-list {
+            margin: 0;
+            padding-left: 1.25rem;
+        }
+        .scholar-link {
+            display: inline-block;
+            color: #2563eb;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .scholar-link:hover {
+            text-decoration: underline;
+        }
+        .error-message {
+            background: #fef2f2;
+            color: #dc2626;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-top: 1rem;
+            display: none;
+        }
+        .error-message.visible {
+            display: block;
+        }
+        .no-hallucinations {
+            padding: 2rem;
+            text-align: center;
+            color: #16a34a;
+        }
+    </style>
+</head>
+<body>
+    <h1>Hallucinated Reference Checker</h1>
+    <p class="subtitle">Upload a PDF to check for potentially hallucinated or incorrect references</p>
+    <p class="subtitle">Inspired by Madison Akles' <a href="https://madisonakles.github.io/checker.html">in-browser hallucination checker</a></p>
+
+    <div class="upload-form">
+        <form id="analyzeForm">
+            <div class="form-group">
+                <label for="pdfFile">PDF File</label>
+                <input type="file" id="pdfFile" name="pdf" accept=".pdf" required>
+            </div>
+            <div class="form-group">
+                <label for="openalexKey">
+                    OpenAlex API Key
+                    <span class="label-hint">(optional, improves coverage)</span>
+                </label>
+                <input type="text" id="openalexKey" name="openalex_key" placeholder="Enter your OpenAlex API key">
+            </div>
+            <button type="submit" id="submitBtn">Analyze References</button>
+        </form>
+        <div class="spinner" id="spinner">
+            <div class="spinner-icon"></div>
+            <span>Analyzing references... This may take a few minutes.</span>
+        </div>
+        <div class="error-message" id="errorMessage"></div>
+    </div>
+
+    <div class="results" id="results">
+        <div class="summary">
+            <h2>Summary</h2>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value" id="totalCount">0</div>
+                    <div class="stat-label">Total References</div>
+                </div>
+                <div class="stat stat-verified">
+                    <div class="stat-value" id="verifiedCount">0</div>
+                    <div class="stat-label">Verified</div>
+                </div>
+                <div class="stat stat-mismatch">
+                    <div class="stat-value" id="mismatchCount">0</div>
+                    <div class="stat-label">Author Mismatches</div>
+                </div>
+                <div class="stat stat-notfound">
+                    <div class="stat-value" id="notfoundCount">0</div>
+                    <div class="stat-label">Not Found</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="hallucinations" id="hallucinations">
+            <h2>Potential Hallucinations</h2>
+            <div id="hallucinationList"></div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('analyzeForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const spinner = document.getElementById('spinner');
+        const errorMessage = document.getElementById('errorMessage');
+        const results = document.getElementById('results');
+
+        function createScholarLink(title) {
+            const encoded = encodeURIComponent(title);
+            return `https://scholar.google.com/scholar?q=${encoded}`;
+        }
+
+        function renderHallucination(ref) {
+            const div = document.createElement('div');
+            div.className = 'reference';
+
+            let statusClass = ref.error_type === 'not_found' ? 'status-not-found' : 'status-mismatch';
+            let statusText = ref.error_type === 'not_found'
+                ? 'Not found in any database'
+                : `Author mismatch (found on ${ref.source})`;
+
+            let authorHtml = '';
+            if (ref.error_type === 'author_mismatch') {
+                authorHtml = `
+                    <div class="author-comparison">
+                        <h4>Authors in PDF:</h4>
+                        <ul class="author-list">
+                            ${ref.ref_authors.map(a => `<li>${escapeHtml(a)}</li>`).join('')}
+                        </ul>
+                        <h4 style="margin-top: 0.75rem;">Authors in ${escapeHtml(ref.source)}:</h4>
+                        <ul class="author-list">
+                            ${ref.found_authors.map(a => `<li>${escapeHtml(a)}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+
+            div.innerHTML = `
+                <div class="reference-title">${escapeHtml(ref.title)}</div>
+                <div class="reference-status ${statusClass}">${statusText}</div>
+                ${authorHtml}
+                <a href="${createScholarLink(ref.title)}" target="_blank" class="scholar-link">
+                    Search on Google Scholar &rarr;
+                </a>
+            `;
+
+            return div;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = new FormData(form);
+
+            // Reset UI
+            submitBtn.disabled = true;
+            spinner.classList.add('visible');
+            errorMessage.classList.remove('visible');
+            results.classList.remove('visible');
+
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                const data = await response.json();
+
+                if (!response.ok || data.error) {
+                    throw new Error(data.error || 'Analysis failed');
+                }
+
+                // Update summary
+                document.getElementById('totalCount').textContent = data.summary.total;
+                document.getElementById('verifiedCount').textContent = data.summary.verified;
+                document.getElementById('mismatchCount').textContent = data.summary.mismatched;
+                document.getElementById('notfoundCount').textContent = data.summary.not_found;
+
+                // Render hallucinations
+                const list = document.getElementById('hallucinationList');
+                list.innerHTML = '';
+
+                const hallucinations = data.results.filter(r => r.status !== 'verified');
+
+                if (hallucinations.length === 0) {
+                    list.innerHTML = '<div class="no-hallucinations">All references verified!</div>';
+                } else {
+                    hallucinations.forEach(ref => {
+                        list.appendChild(renderHallucination(ref));
+                    });
+                }
+
+                results.classList.add('visible');
+
+            } catch (err) {
+                errorMessage.textContent = err.message;
+                errorMessage.classList.add('visible');
+            } finally {
+                submitBtn.disabled = false;
+                spinner.classList.remove('visible');
+            }
+        });
+    </script>
+</body>
+</html>
