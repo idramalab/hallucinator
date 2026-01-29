@@ -202,20 +202,53 @@ def segment_references(ref_text):
         return refs
 
     # Try numbered list style: 1., 2., etc.
+    # Validate that numbers are sequential starting from 1 (not years like 2019. or page numbers)
     numbered_pattern = r'\n\s*(\d+)\.\s+'
     numbered_matches = list(re.finditer(numbered_pattern, ref_text))
 
     if len(numbered_matches) >= 3:
+        # Check if first few numbers look like sequential reference numbers (1, 2, 3...)
+        first_nums = [int(m.group(1)) for m in numbered_matches[:5]]
+        is_sequential = first_nums[0] == 1 and all(
+            first_nums[i] == first_nums[i-1] + 1 for i in range(1, len(first_nums))
+        )
+        if is_sequential:
+            refs = []
+            for i, match in enumerate(numbered_matches):
+                start = match.end()
+                end = numbered_matches[i + 1].start() if i + 1 < len(numbered_matches) else len(ref_text)
+                ref_content = ref_text[start:end].strip()
+                if ref_content:
+                    refs.append(ref_content)
+            return refs
+
+    # Try AAAI/ACM author-year style: "Surname, I.; ... Year. Title..."
+    # Each reference starts with a surname (capitalized word, possibly hyphenated or two-part)
+    # followed by comma and author initial(s)
+    # Pattern matches: "Avalle, M.", "Camacho-collados, J.", "Del Vicario, M.", "Van Bavel, J."
+    # Must be preceded by period+newline (end of previous reference) to avoid matching
+    # author names that wrap to new lines mid-reference
+    # Use [a-z0-9)] before period to exclude author initials (which are uppercase like "A.")
+    # This ensures we only match after page numbers (digits), venue names (lowercase), or volume/issue like 118(9).
+    aaai_pattern = r'[a-z0-9)]\.\n([A-Z][a-zA-Z]+(?:[ -][A-Za-z]+)?,\s+[A-Z]\.)'
+    aaai_matches = list(re.finditer(aaai_pattern, ref_text))
+
+    if len(aaai_matches) >= 3:
         refs = []
-        for i, match in enumerate(numbered_matches):
-            start = match.end()
-            end = numbered_matches[i + 1].start() if i + 1 < len(numbered_matches) else len(ref_text)
+        # Handle first reference (before first match) - starts at beginning of ref_text
+        first_ref = ref_text[:aaai_matches[0].start()].strip()
+        if first_ref and len(first_ref) > 20:
+            refs.append(first_ref)
+        # Handle remaining references
+        for i, match in enumerate(aaai_matches):
+            start = match.start() + 3  # +3 to skip the "[a-z0-9].\n"
+            end = aaai_matches[i + 1].start() if i + 1 < len(aaai_matches) else len(ref_text)
             ref_content = ref_text[start:end].strip()
             if ref_content:
                 refs.append(ref_content)
         return refs
 
-    # Fallback: split by double newlines or lines starting with author patterns
+    # Fallback: split by double newlines
     paragraphs = re.split(r'\n\s*\n', ref_text)
     return [p.strip() for p in paragraphs if p.strip() and len(p.strip()) > 20]
 
@@ -283,6 +316,20 @@ def extract_authors_from_reference(ref_text):
 
     if not author_section:
         return []
+
+    # Check if this is AAAI format (semicolon-separated: "Surname, I.; Surname, I.; and Surname, I.")
+    if '; ' in author_section and re.search(r'[A-Z][a-z]+,\s+[A-Z]\.', author_section):
+        # AAAI format - split by semicolon
+        author_section = re.sub(r';\s+and\s+', '; ', author_section, flags=re.IGNORECASE)
+        parts = [p.strip() for p in author_section.split(';') if p.strip()]
+        for part in parts:
+            # Each part is "Surname, Initials" like "Bail, C. A."
+            part = part.strip()
+            if part and len(part) > 2 and re.search(r'[A-Z]', part):
+                # Convert "Surname, I. M." to a cleaner form for matching
+                # Keep as-is since validate_authors normalizes anyway
+                authors.append(part)
+        return authors[:15]
 
     # Normalize "and" and "&"
     author_section = re.sub(r',?\s+and\s+', ', ', author_section, flags=re.IGNORECASE)
@@ -838,12 +885,26 @@ def query_semantic_scholar(title):
 
 def validate_authors(ref_authors, found_authors):
     def normalize_author(name):
+        # Handle AAAI "Surname, Initials" format (e.g., "Bail, C. A.")
+        if ',' in name:
+            parts = name.split(',')
+            surname = parts[0].strip()
+            initials = parts[1].strip() if len(parts) > 1 else ""
+            # Get first initial letter
+            first_initial = initials[0] if initials else ""
+            return f"{first_initial} {surname.lower()}"
+        # Standard format: "FirstName LastName"
         parts = name.split()
         if not parts:
             return ""
         return f"{parts[0][0]} {parts[-1].lower()}"
 
     def get_last_name(name):
+        # Handle AAAI "Surname, Initials" format (e.g., "Bail, C. A.")
+        if ',' in name:
+            surname = name.split(',')[0].strip()
+            return surname.lower()
+        # Standard format: surname is last word
         parts = name.split()
         if not parts:
             return ""
